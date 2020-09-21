@@ -22,10 +22,10 @@ parser.add_argument('--test-batch-size', type=int, default=10, metavar='N',  # t
                     help='input batch size for testing (default: 1000)')
 parser.add_argument('--epochs', type=int, default=1, metavar='N',
                     help='number of epochs to train (default: 10)')
-parser.add_argument('--lr', type=float, default=0.05, metavar='LR',
+parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
-                    help='SGD momentum (default: 0.5)')
+                    help='SGD momentum (default: 0.9)')
 parser.add_argument('--no-cuda', action='store_true', default=False,  # GPU参数，默认为False
                     help='disables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -44,6 +44,11 @@ if torch.cuda.is_available() and not args.no_cuda:
 else:
     print("Using CPU...")
     use_gpu = False
+
+if torch.cuda.device_count() > 1:
+    multi_gpu = True
+else:
+    multi_gpu = False
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_gpu else {}
 train_loader = torch.utils.data.DataLoader(
@@ -101,6 +106,7 @@ class ResNet50(nn.Module):
         self.resnet = torchvision.models.resnet50(pretrained=False)
 
     def forward(self, x):
+        # print("Inside: input size", x.size())
         x = self.conv(x)
         x = self.resnet(x)
         return x
@@ -108,9 +114,8 @@ class ResNet50(nn.Module):
 
 model = ResNet50()
 
-# Initializing tensorboard
 if not args.no_tensorboard:
-    writer = SummaryWriter('./runs/benchmark')
+    writer = SummaryWriter('./runs/DP')
     data_iter = iter(train_loader)
     images, labels = data_iter.next()
     writer.add_graph(model, images)
@@ -118,6 +123,15 @@ if not args.no_tensorboard:
 criterion = nn.CrossEntropyLoss()
 if use_gpu:
     model.cuda()  # 判断是否调用GPU模式
+
+if multi_gpu:
+    print("Using {} GPUs".format(torch.cuda.device_count()))
+    # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+    model = nn.DataParallel(model)
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(device)
+model.to(device)
 
 # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)  # 初始化优化器 model.train()
 
@@ -137,10 +151,13 @@ def train(epoch):  # 定义每个epoch的训练细节
 
         if use_gpu:  # 如果要调用GPU模式，就把数据转存到GPU
             data, target = data.cuda(), target.cuda()
+        if multi_gpu:
+            data, target = data.to(device), target.to(device)
+            # print("Outside: input size", data.size())
+
         data, target = Variable(data), Variable(target)  # 把数据转换成Variable
         optimizer.zero_grad()  # 优化器梯度初始化为零
         output = model(data)  # 把数据输入网络并得到输出，即进行前向传播
-        ff = nn.CrossEntropyLoss()
         train_output = torch.max(output, dim=1)[1]
         loss = criterion(output, target)  # 计算损失函数
         loss.backward()  # 反向传播梯度
@@ -209,11 +226,11 @@ def profile(dir_name='./runs/benchmark/', batch_size=args.batch_size):
     if use_gpu:
         print(prof.key_averages(group_by_input_shape=True).table(sort_by="cuda_time_total", row_limit=10))
         prof.export_chrome_trace(
-            dir_name + "profiler/benchmark_inference_profiler_cuda_{}gpus_{}.json".format(torch.cuda.device_count(),
+            dir_name + "profiler/DP_training_profiler_cuda_{}gpus_{}.json".format(torch.cuda.device_count(),
                                                                                           batch_size))
     else:
         print(prof.key_averages(group_by_input_shape=True).table(sort_by="cpu_time_total", row_limit=10))
-        prof.export_chrome_trace(dir_name + "profiler/benchmark_training_profiler_cpu.json")
+        prof.export_chrome_trace(dir_name + "profiler/DP_training_profiler_cpu.json")
 
     for batch_idx, (test_x, test_y) in enumerate(test_loader):
         with profiler.profile(use_cuda=use_gpu) as prof:
@@ -227,23 +244,26 @@ def profile(dir_name='./runs/benchmark/', batch_size=args.batch_size):
     if use_gpu:
         print(prof.key_averages(group_by_input_shape=True).table(sort_by="cuda_time_total", row_limit=10))
         prof.export_chrome_trace(
-            dir_name + "profiler/benchmark_inference_profiler_cuda_{}gpus_{}.json".format(torch.cuda.device_count(),
+            dir_name + "profiler/DP_inference_profiler_cuda_{}gpus_{}.json".format(torch.cuda.device_count(),
                                                                                           batch_size))
     else:
         print(prof.key_averages(group_by_input_shape=True).table(sort_by="cpu_time_total", row_limit=10))
-        prof.export_chrome_trace(dir_name + "/profiler/benchmark_inference_profiler_cpu.json")
+        prof.export_chrome_trace(dir_name + "/profiler/DP_inference_profiler_cpu.json")
 
 
 if __name__ == '__main__':
+
     for epoch in range(1, args.epochs + 1):  # 以epoch为单位进行循环
         start = time.time()
         train(epoch)
         end = time.time()
-        print("Training using time: {}s, throughput: {} items/s".format(end - start, len(train_loader.dataset) / (end - start)))
+        print("Training using time: {}s, throughput: {} items/s".format(end - start,
+                                                                        len(train_loader.dataset) / (end - start)))
         start = time.time()
         test(epoch)
         end = time.time()
-        print("Inference using time: {}s, throughput: {} items/s".format(end - start, len(test_loader.dataset) / (end - start)))
+        print("Inference using time: {}s, throughput: {} items/s".format(end - start,
+                                                                         len(test_loader.dataset) / (end - start)))
 
     # Profiler
-    profile()
+    profile('./runs/DP/')

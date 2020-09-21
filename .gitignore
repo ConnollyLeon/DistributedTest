@@ -11,3 +11,7 @@ testPytorch/.DS_Store
 testPytorch/data/.DS_Store
 *.pt
 testPytorch/benchmark_training_profiler.json
+testPytorch/benchmark/profiler/benchmark_inference_profiler.json
+testPytorch/benchmark/profiler/benchmark_training_profiler.json
+testPytorch/benchmark/events.out.tfevents.1600327191.g0111.68417.0
+testPytorch/benchmark/.DS_Store
