@@ -2,6 +2,7 @@ from __future__ import print_function  # 这个是python当中让print都以pyth
 
 import argparse
 import time
+import random
 
 import torch
 import torch.autograd.profiler as profiler
@@ -36,6 +37,7 @@ parser.add_argument('--no-tensorboard', action='store_true', default=False,
                     help='activate tensorboard to summarize training')
 
 args = parser.parse_args()
+random.seed(0)
 torch.manual_seed(0)
 if torch.cuda.is_available() and not args.no_cuda:
     use_gpu = True
@@ -113,6 +115,7 @@ if not args.no_tensorboard:
     writer = SummaryWriter('./runs/benchmark')
     data_iter = iter(train_loader)
     images, labels = data_iter.next()
+    print(images.shape)
     writer.add_graph(model, images)
 
 criterion = nn.CrossEntropyLoss()

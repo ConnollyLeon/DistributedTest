@@ -1,6 +1,7 @@
 from __future__ import print_function  # 这个是python当中让print都以python3的形式进行print，即把print视为函数
 
 import argparse
+import random
 import time
 
 import torch
@@ -36,6 +37,7 @@ parser.add_argument('--no-tensorboard', action='store_true', default=False,
                     help='activate tensorboard to summarize training')
 
 args = parser.parse_args()
+random.seed(0)
 torch.manual_seed(0)
 if torch.cuda.is_available() and not args.no_cuda:
     use_gpu = True
