@@ -4,6 +4,7 @@ import random
 import socket
 import time
 
+import numpy as np
 import torch
 import torch.autograd.profiler as profiler
 import torch.distributed as dist
@@ -41,8 +42,6 @@ parser.add_argument('--no-tensorboard', action='store_true', default=False,
                     help='activate tensorboard to summarize training')
 
 args = parser.parse_args()
-random.seed(0)
-torch.manual_seed(0)
 
 
 def find_free_port():
@@ -62,7 +61,6 @@ def setup(rank, world_size):
         dist_url = "tcp://{}:{}".format(ip, port)
         with open(hostfile, "w") as f:
             f.write(dist_url)
-
     else:
         while not os.path.exists(hostfile):
             time.sleep(1)
@@ -78,15 +76,7 @@ def setup(rank, world_size):
     tcp_store = dist.TCPStore(ip, port, world_size, rank == 0)
     dist.init_process_group("nccl", store=tcp_store, rank=rank, world_size=world_size)
     print(f'rank {rank}: initialization done.')
-
-
-if torch.cuda.is_available() and not args.no_cuda:
-    use_gpu = True
-    print("Using GPU...")
-    torch.cuda.manual_seed(0)  # Set a seed to make result consistent
-else:
-    print("Using CPU...")
-    use_gpu = False
+    assert torch.distributed.is_initialized()
 
 
 class ResNet50(nn.Module):
@@ -100,15 +90,6 @@ class ResNet50(nn.Module):
         x = self.conv(x)
         x = self.resnet(x)
         return x
-
-
-def dist_init(host_addr, rank, local_rank, world_size, port=23456):
-    host_addr_full = 'tcp://' + host_addr + ':' + str(port)
-    torch.distributed.init_process_group("nccl", init_method=host_addr_full,
-                                         rank=rank, world_size=world_size)
-    num_gpus = torch.cuda.device_count()
-    torch.cuda.set_device(local_rank)
-    assert torch.distributed.is_initialized()
 
 
 # 此后训练流程与普通模型无异
@@ -220,7 +201,27 @@ if __name__ == '__main__':
     rank = int(os.environ['SLURM_PROCID'])
     local_rank = int(os.environ['SLURM_LOCALID'])
     world_size = int(os.environ['SLURM_NTASKS'])
+
+    # Set seed
+    random.seed(rank + 1)
+    torch.manual_seed(rank + 1)
+    np.random.seed(rank + 1)
+    if torch.cuda.is_available() and not args.no_cuda:
+        use_gpu = True
+        print("Using GPU...")
+        torch.cuda.manual_seed(rank + 1)  # Set a seed to make result consistent
+    else:
+        print("Using CPU...")
+        use_gpu = False
+
+    # Very important when using multiple CUDA devices on single node?
+    print(f"rank {rank}:setting visible devices")
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
+    print(f"rank {rank}:setting visible devices Done, Using cuda:", os.environ["CUDA_VISIBLE_DEVICES"])
+
     n_gpus = torch.cuda.device_count()
+    # This step need to be done before process_group_init
+    torch.cuda.set_device(local_rank)
     print(f'rank {rank}:device_count:', n_gpus)
     print(f'rank {rank}:torch current device:', torch.cuda.current_device())
     setup(rank, world_size)
