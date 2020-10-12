@@ -25,10 +25,10 @@ def run(rank, size):
     print('Rank ', rank, ' has data ', tensor[0])
     # hostname = 'g' + str(os.environ['SLURM_NODELIST']).strip('g[]')[0:4]
     rank = int(os.environ['SLURM_PROCID'])
-    local_machine = int(os.environ['SLURM_LOCALID'])
+    local_rank = int(os.environ['SLURM_LOCALID'])
     world_size = int(os.environ['SLURM_NTASKS'])
     print('rank', rank)
-    print('local_machine', local_machine)
+    print('local_rank', local_rank)
     print('world_size', world_size)
 
 
@@ -44,7 +44,8 @@ def init_process(rank, size, fn, backend='gloo'):
 
 
 if __name__ == "__main__":
-    processes = []
+    # pytorch原来的做法
+    # processes = []
     # for rank in range(size):
     #     p = Process(target=init_process, args=(rank, size, run))
     #     p.start()
@@ -57,11 +58,7 @@ if __name__ == "__main__":
     ip = socket.gethostbyname(hostname)
     # hostname = 'g' + str(os.environ['SLURM_NODELIST']).strip('g[]')[0:4]
     rank = int(os.environ['SLURM_PROCID'])
-    local_machine = int(os.environ['SLURM_LOCALID'])
+    local_rank = int(os.environ['SLURM_LOCALID'])
     world_size = int(os.environ['SLURM_NTASKS'])
-    print(hostname)
-    print(ip)
-    print('rank', rank)
-    print('local_machine', local_machine)
-    print('world_size', world_size)
+
     init_process(rank, world_size, run)
