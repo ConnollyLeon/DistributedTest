@@ -6,8 +6,10 @@ import torch.distributed.rpc as rpc
 import torch.multiprocessing as mp
 import torch.optim as optim
 from torch.distributed.optim import DistributedOptimizer
+import socket
+import time
 
-from DistributedTest.testPytorch import rnn
+import rnn
 
 
 def _run_trainer():
@@ -81,6 +83,53 @@ def run_worker(rank, world_size):
     rpc.shutdown()
 
 
+def find_free_port():
+    s = socket.socket()
+    s.bind(('', 0))  # Bind to a free port provided by the host.
+    return s.getsockname()[1]  # Return the port number assigned.
+
+
+def setup(rank, world_size):
+    hostname = os.environ['HOSTNAME']
+    # 获取本机ip
+    ip = socket.gethostbyname(hostname)
+    jobid = os.environ['SLURM_JOB_ID']
+    hostfile = "rpc_url." + jobid + ".txt"
+    if rank == 0:
+        port = find_free_port()
+        rpc_url = "tcp://{}:{}".format(ip, port)
+        with open(hostfile, "w") as f:
+            f.write(rpc_url)
+    else:
+        while not os.path.exists(hostfile):
+            time.sleep(1)
+        with open(hostfile, 'r') as f:
+            rpc_url = f.read()
+        ip = rpc_url.strip('tcp://').split(':')[0]
+        port = int(rpc_url.strip('tcp://').split(':')[1])
+
+    os.environ['MASTER_ADDR'] = ip
+    os.environ['MASTER_PORT'] = str(port)
+
+    print(f'rank {rank}:', "rpc-url:{} at PROCID {} / {}".format(rpc_url, rank, world_size))
+
+    # initialize the process group
+    print(f'rank {rank}: initializing process group')
+    if rank == 1:
+        rpc.init_rpc("trainer", rank=rank, world_size=world_size)
+        _run_trainer()
+    else:
+        rpc.init_rpc("ps", rank=rank, world_size=world_size)
+        # parameter server do nothing
+        pass
+
+    # block until all rpcs finish
+    print(f'rank {rank}: initialization done.')
+    rpc.shutdown()
+
+
 if __name__=="__main__":
-    world_size = 2
-    mp.spawn(run_worker, args=(world_size, ), nprocs=world_size, join=True)
+    rank = int(os.environ['SLURM_PROCID'])
+    local_rank = int(os.environ['SLURM_LOCALID'])
+    world_size = int(os.environ['SLURM_NTASKS'])
+    setup(rank,world_size)

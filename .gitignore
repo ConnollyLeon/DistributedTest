@@ -4,3 +4,4 @@ testPytorch/data/.DS_Store
 *.pt
 /testPytorch/runs/
 /testPytorch/data/
+testPytorch/examples-distributed-rpc-pipeline.zip
