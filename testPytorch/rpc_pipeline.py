@@ -10,11 +10,13 @@ import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.optim as optim
 import torchvision
-from torch.autograd import Variable
+from torch.autograd import Variable, profiler
 from torch.distributed.optim import DistributedOptimizer
 from torch.distributed.rpc import RRef
 from torchvision import datasets, transforms
 from torchvision.models.resnet import Bottleneck
+from torch.utils.tensorboard import SummaryWriter
+
 
 #########################################################
 #           Define Model Parallel ResNet50              #
@@ -191,8 +193,12 @@ image_w = 128
 image_h = 128
 
 
+
+
 def run_master(split_size):
     # put the two model parts on worker1 and worker2 respectively
+
+    writer = SummaryWriter('./runs/rpc_pipeline/')
 
     model = DistResNet50(split_size, ["worker1", "worker2"])
     loss_fn = nn.CrossEntropyLoss()
@@ -221,30 +227,97 @@ def run_master(split_size):
             transform=transforms.Compose([transforms.Resize(224), torchvision.transforms.ToTensor()])),
         batch_size=64, shuffle=False)
 
-    running_accuracy = 0.0
-    for batch_idx, (data, target) in enumerate(train_loader):
-        # generate random inputs and labels
-        # if use_gpu:  # 如果要调用GPU模式，就把数据转存到GPU
-        # data, target = data.cuda(), target.cuda()
+    def train(epoch):
+        running_accuracy = 0.0
+        running_loss=0.0
+        for batch_idx, (data, target) in enumerate(train_loader):
+            # generate random inputs and labels
+            # if use_gpu:  # 如果要调用GPU模式，就把数据转存到GPU
+            # data, target = data.cuda(), target.cuda()
 
-        data, target = Variable(data), Variable(target)  # 把数据转换成Variable
+            data, target = Variable(data), Variable(target)  # 把数据转换成Variable
 
-        # The distributed autograd context is the dedicated scope for the
-        # distributed backward pass to store gradients, which can later be
-        # retrieved using the context_id by the distributed optimizer.
-        with dist_autograd.context() as context_id:
-            outputs = model(data)
-            train_outputs = torch.max(outputs, dim=1)[1]
-            loss = loss_fn(outputs, target)
-            dist_autograd.backward(context_id, [loss])
-            opt.step(context_id)
-        running_accuracy += torch.sum(torch.eq(target, train_outputs)).item() / target.cpu().numpy().size
+            # The distributed autograd context is the dedicated scope for the
+            # distributed backward pass to store gradients, which can later be
+            # retrieved using the context_id by the distributed optimizer.
+            with dist_autograd.context() as context_id:
+                outputs = model(data)
+                train_outputs = torch.max(outputs, dim=1)[1]
+                loss = loss_fn(outputs, target)
+                dist_autograd.backward(context_id, [loss])
+                opt.step(context_id)
+            running_accuracy += torch.sum(torch.eq(target, train_outputs)).item() / target.cpu().numpy().size
+            running_loss += loss.item()
+            if batch_idx % 10 == 0:  # 准备打印相关信息，args.log_interval是最开头设置的好了的参数
+                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\t Accuracy: {:.6f}'.format(
+                    0, batch_idx * len(data), len(train_loader.dataset),
+                       100. * batch_idx / len(train_loader), loss.item(), running_accuracy / 10))
+                writer.add_scalar('training loss',
+                                      running_loss / 10,
+                                      epoch * len(train_loader.dataset) + batch_idx * batch_size)
+                writer.add_scalar('training accuracy', running_accuracy / 10,
+                                      epoch * len(train_loader.dataset) + batch_idx * batch_size)
 
-        if batch_idx % 10 == 0:  # 准备打印相关信息，args.log_interval是最开头设置的好了的参数
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\t Accuracy: {:.6f}'.format(
-                0, batch_idx * len(data), len(train_loader.dataset),
-                   100. * batch_idx / len(train_loader), loss.item(), running_accuracy / 10))
-            running_accuracy = 0.0
+                running_accuracy = 0.0
+                running_loss=0.0
+
+    def test(epoch):
+        model.eval()  # 设置为test模式
+        test_loss = 0  # 初始化测试损失值为0
+        correct = 0  # 初始化预测正确的数据个数为0
+        running_accuracy = 0.0
+        total = 0
+        count = 0
+        for data, target in test_loader:
+            data, target = Variable(data), Variable(target)
+            output = model(data)
+            test_loss += loss_fn(output, target).item()  # sum up batch loss 把所有loss值进行累加
+            test_output = torch.max(output, dim=1)[1]  # get the index of the max log-probability
+            # pred = output.data.max(1, keepdim=True)[1]
+            correct += torch.sum(torch.eq(test_output, target)).item()
+            total += target.size(0)
+            count += 1
+            # correct += test_output.eq(target.data.view_as(test_output)).cpu().sum()  # 对预测正确的数据个数进行累加
+            # running_accuracy += torch.sum(torch.eq(target, test_output)).item() / target.cpu().numpy().size
+
+        test_loss /= count  # 因为把所有loss值进行过累加，所以最后要除以总得数据长度才得平均loss
+        print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}% )\n'.format(
+            test_loss, correct, len(test_loader.dataset),
+            100. * correct / len(test_loader.dataset), ))
+
+        writer.add_scalar('testing loss', test_loss, epoch)
+        writer.add_scalar('testing accuracy', 100. * correct / len(test_loader.dataset), epoch)
+
+    def profile(dir_name='./runs/rpc_pipeline/', batch_size=batch_size):
+        with profiler.profile(profile_memory=True) as prof:
+            with profiler.record_function("model_training"):
+                for batch_idx, (train_x, train_y) in enumerate(train_loader):  # 把取数据放在profile里会报错，所以放在外面
+                    model.train()
+                    with dist_autograd.context() as context_id:
+                        outputs = model(train_x)
+                        train_outputs = torch.max(outputs, dim=1)[1]
+                        loss = loss_fn(outputs, train_y)
+                        dist_autograd.backward(context_id, [loss])
+                        opt.step(context_id)
+                    if batch_idx == 9:
+                        break
+        print(prof.key_averages(group_by_input_shape=True).table(sort_by="cuda_time_total", row_limit=10))
+        prof.export_chrome_trace(
+                dir_name + "profiler/rpc_pipeline_training_profiler.json")
+
+
+    # for epoch in range(1,2):
+    #     start = time.time()
+    #     train(epoch)
+    #     end = time.time()
+    #     print("Training using time: {}s, throughput: {} items/s".format(end - start,
+    #                                                                     len(train_loader.dataset) / (end - start)))
+    #     start = time.time()
+    #     test(epoch)
+    #     end = time.time()
+    #     print("Inference using time: {}s, throughput: {} items/s".format(end - start,
+    #                                                                      len(test_loader.dataset) / (end - start)))
+    profile()
 
 
 def run_worker(rank, world_size, num_split):
@@ -333,13 +406,14 @@ def setup(rank, world_size, num_split):
 
 
 if __name__ == "__main__":
-    # rank = int(os.environ['SLURM_PROCID'])
-    # local_rank = int(os.environ['SLURM_LOCALID'])
-    # world_size = int(os.environ['SLURM_NTASKS'])
-    world_size=3
+    rank = int(os.environ['SLURM_PROCID'])
+    local_rank = int(os.environ['SLURM_LOCALID'])
+    world_size = int(os.environ['SLURM_NTASKS'])
+    # world_size=3
     for num_split in [8]:
         tik = time.time()
-        #setup(rank, world_size, num_split)
-        mp.spawn(run_worker, args=(world_size, num_split), nprocs=world_size, join=True)
+        setup(rank, world_size, num_split)
+        # 单节点不想用slurm时可以用mp.spawn启动多进程
+        # mp.spawn(run_worker, args=(world_size, num_split), nprocs=world_size, join=True)
         tok = time.time()
         print(f"number of splits = {num_split}, execution time = {tok - tik}s")
