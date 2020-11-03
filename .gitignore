@@ -5,3 +5,5 @@ testPytorch/data/.DS_Store
 /testPytorch/runs/
 /testPytorch/data/
 testPytorch/examples-distributed-rpc-pipeline.zip
+.DS_Store
+/ZeRO/DeepSpeedExamples/cifar/data/
