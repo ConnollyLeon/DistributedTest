@@ -1,0 +1,4 @@
+g0034 slots=4
+g0036 slots=4
+g0035 slots=4
+g0105 slots=4

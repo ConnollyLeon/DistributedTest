@@ -243,7 +243,7 @@ def test(epoch):
 
 def profile(dir_name='./runs/benchmark/', batch_size=args.batch_size):
     for batch_idx, (train_x, train_y) in enumerate(train_loader):  # 把取数据放在profile里会报错，所以放在外面
-        with profiler.profile(use_cuda=use_gpu) as prof:
+        with profiler.profile() as prof:
             with profiler.record_function("model_training"):
                 train_x = train_x.to('cuda:0')
                 train_y = train_y.to('cuda:1')
@@ -252,7 +252,7 @@ def profile(dir_name='./runs/benchmark/', batch_size=args.batch_size):
                 loss = criterion(model(train_x), train_y)
                 loss.backward()
                 optimizer.step()
-                break
+
 
     if use_gpu:
         print(prof.key_averages(group_by_input_shape=True).table(sort_by="cuda_time_total", row_limit=10))
@@ -392,17 +392,17 @@ if __name__ == '__main__':
     # Used for comparision among Single GPU, Model Parallelism, Pipelined Model Parallelism
     # compare()
 
-    for epoch in range(1, args.epochs + 1):  # 以epoch为单位进行循环
-        start = time.time()
-        train(epoch)
-        end = time.time()
-        print("Training using time: {}s, throughput: {} items/s".format(end - start,
-                                                                        len(train_loader.dataset) / (end - start)))
-        start = time.time()
-        test(epoch)
-        end = time.time()
-        print("Inference using time: {}s, throughput: {} items/s".format(end - start,
-                                                                         len(test_loader.dataset) / (end - start)))
+    # for epoch in range(1, args.epochs + 1):  # 以epoch为单位进行循环
+    #     start = time.time()
+    #     train(epoch)
+    #     end = time.time()
+    #     print("Training using time: {}s, throughput: {} items/s".format(end - start,
+    #                                                                     len(train_loader.dataset) / (end - start)))
+    #     start = time.time()
+    #     test(epoch)
+    #     end = time.time()
+    #     print("Inference using time: {}s, throughput: {} items/s".format(end - start,
+    #                                                                      len(test_loader.dataset) / (end - start)))
 
     # Profiler
     profile('./runs/PMP/')
