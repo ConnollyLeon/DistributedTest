@@ -7,3 +7,7 @@ testPytorch/data/.DS_Store
 testPytorch/examples-distributed-rpc-pipeline.zip
 .DS_Store
 /ZeRO/DeepSpeedExamples/cifar/data/
+ZeRO/DeepSpeedExamples/mnist/DDP_training_profiler_cuda_4_gpus_64_nodes_1.0.json
+ZeRO/DeepSpeedExamples/mnist/DDP_training_profiler_cuda_2_gpus_64_nodes_1.0.json
+ZeRO/DeepSpeedExamples/cifar.zip
+testPytorch/rpc_pipeline_training_profiler.json
