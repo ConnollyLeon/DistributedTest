@@ -10,7 +10,5 @@ source ~/dat01/lpeng/env.bash
 
 
 #Used for testing ddp 
-#srun -N 2 --ntasks-per-node=1 --gres=gpu:1 -p gpu python -u ddp_test.py
-#srun -N 2 --ntasks-per-node=1 --gres=gpu:1 -p gpu python -u DDP.py
-#srun -N 1 --ntasks-per-node=2 --gres=gpu:2 -p gpu python -u DDP.py
-srun -N 4 --ntasks-per-node=1 --gres=gpu:1 -p gpu python -u DDP.py
+
+srun -N 4 --ntasks-per-node=1 --gres=gpu:1 -p gpu python -u ./src/DDP.py

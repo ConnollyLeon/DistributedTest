@@ -69,32 +69,6 @@ test_loader = torch.utils.data.DataLoader(
 # test_x = torch.unsqueeze(test_dataset.data, dim=1).type(torch.Tensor)
 # test_y = test_dataset.targets
 
-class LeNet(nn.Module):  # Using this module need to delete resize in dataloader
-    def __init__(self):
-        super(LeNet, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(1, 6, 3, 1, 2), nn.ReLU(),
-                                   nn.MaxPool2d(2, 2))
-
-        self.conv2 = nn.Sequential(nn.Conv2d(6, 16, 5), nn.ReLU(),
-                                   nn.MaxPool2d(2, 2))
-
-        self.fc1 = nn.Sequential(nn.Linear(16 * 5 * 5, 120),
-                                 nn.BatchNorm1d(120), nn.ReLU())
-
-        self.fc2 = nn.Sequential(
-            nn.Linear(120, 84),
-            nn.BatchNorm1d(84),
-            nn.ReLU(),
-            nn.Linear(84, 10))  # 最后的结果一定要变为 10，因为数字的选项是 0 ~ 9
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = x.view(x.size()[0], -1)
-        x = self.fc1(x)
-        x = self.fc2(x)
-        return x
-
 
 class ResNet50(nn.Module):
     def __init__(self):
@@ -242,11 +216,13 @@ if __name__ == '__main__':
         start = time.time()
         train(epoch)
         end = time.time()
-        print("Training using time: {}s, throughput: {} items/s".format(end - start, len(train_loader.dataset) / (end - start)))
+        print("Training using time: {}s, throughput: {} items/s".format(end - start,
+                                                                        len(train_loader.dataset) / (end - start)))
         start = time.time()
         test(epoch)
         end = time.time()
-        print("Inference using time: {}s, throughput: {} items/s".format(end - start, len(test_loader.dataset) / (end - start)))
+        print("Inference using time: {}s, throughput: {} items/s".format(end - start,
+                                                                         len(test_loader.dataset) / (end - start)))
 
     # Profiler
     profile()

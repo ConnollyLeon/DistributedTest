@@ -1,5 +1,6 @@
 测试环境: torch1.6 
 batch_size 均为64
+ 
 
 #  Experiment Results
  | 实验名字              | GPU type&num         | Throughput | Memory Usage |
