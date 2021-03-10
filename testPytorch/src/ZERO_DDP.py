@@ -45,6 +45,11 @@ parser.add_argument('--no-tensorboard', action='store_true', default=False,
 args = parser.parse_args()
 
 
+def print_peak_memory(prefix, device):
+    if device == 0:
+        print(f"{prefix}: {torch.cuda.max_memory_allocated(device) // 1e6}MB ")
+
+
 def find_free_port():
     s = socket.socket()
     s.bind(('', 0))  # Bind to a free port provided by the host.
@@ -106,10 +111,13 @@ def train(epoch, local_rank):  # 定义每个epoch的训练细节
         output = model(data)  # 把数据输入网络并得到输出，即进行前向传播
         train_output = torch.max(output, dim=1)[1]
         loss = criterion(output, target)  # 计算损失函数
+        print_peak_memory('Max memory allocated before backward', local_rank)
         loss.backward()  # 反向传播梯度
+        print_peak_memory('Max memory allocated after backward', local_rank)
         running_accuracy += torch.sum(torch.eq(target, train_output)).item() / target.cpu().numpy().size
         running_loss += loss.item()
         optimizer.step()  # 结束一次前传+反传之后，更新优化器参数
+        print_peak_memory('Max memory allocated after optimizer step', local_rank)
         if batch_idx % args.log_interval == 0:  # 准备打印相关信息，args.log_interval是最开头设置的好了的参数
             print(f'rank {rank}:' + 'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\t Accuracy: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -123,6 +131,7 @@ def train(epoch, local_rank):  # 定义每个epoch的训练细节
                                   epoch * len(train_loader.dataset) + batch_idx * args.batch_size)
             running_loss = 0.0
             running_accuracy = 0.0
+
 
 def test(epoch, local_rank):
     model.eval()  # 设置为test模式
@@ -251,13 +260,14 @@ if __name__ == '__main__':
     # Prepare Model
     model = ResNet50()  # 也是按自己的模型写
     model.cuda(local_rank)
-    model = DistributedDataParallel(model, device_ids=[local_rank])
-
     criterion = nn.CrossEntropyLoss().cuda(local_rank)
+    print_peak_memory('Max memory allocated after creating local model', local_rank)
+    model = DistributedDataParallel(model, device_ids=[local_rank])
+    print_peak_memory('Max memory allocated after creating DDP', local_rank)
 
     optimizer = ZeroRedundancyOptimizer(model.parameters(),
-                                                                optimizer_class=torch.optim.Adam,
-                                                                lr=args.lr)
+                                        optim=torch.optim.Adam,
+                                        lr=args.lr)
 
     # Draw a picture
     if not args.no_tensorboard:

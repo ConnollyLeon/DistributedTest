@@ -74,6 +74,8 @@ Note: 可profile
 在继承了MP模型的基础上，修改forward过程，将每次输入的batch分成更小的micro-batch，进行前向传播训练，
 此处利用到了torch异步执行的机制。
 
+注意：PMP的backward和step是没有做优化的。
+
     def forward(self, x):
         splits = iter(x.split(self.split_size, dim=0))
         s_next = next(splits)
@@ -100,15 +102,21 @@ Note: 可profile
 ## 7. ZeRO_DDP
 zero的思想可以参考 ref: [DeepSpeed](https://www.deepspeed.ai/)
 
-目前torch1.8的ZeRO优化器做的稀烂，现在还是beta版本就先忍了。吞吐率奇低，大概率是因为每一次step的时候都需要进行很多次的通信。
-内存也没有做到zero redundancy,完全没有看到释放多余占用内存的代码，这应该是原因。    
+torch1.8的ZeRO优化器属于ZeRO-1，只对优化器状态进行划分。
+
+目前torch1.8的ZeRO优化器实现还是比较慢的，现在还是beta版本就先忍了。吞吐率奇低，大概率是因为每一次step的时候都需要进行很多次的通信，
+也可能是因为我所用的机群通信太慢的原因。
+    
 
 Note: 应该可profile，没试过
 
 ## 8. torchgpipe (not  Done yet)
+只支持单节点。
+
 torchgpipe现在已经被加入了torch1.8豪华套餐，我还没有用1.8中的torchgpipe做过测试，
-但是在torchgpipe的原版代码中我进行过一点测试。基本上micro-batch数量越多，加速比越大。
-4卡，micro-batch为32的情况下，加速比为2.8。
+但是在torchgpipe的原版代码中我进行过一点测试。基本上micro-batch数量越多，加速比越大，
+不过也存在一个加速的上限，曲线为凸型。
+4卡，micro-batch为32个的情况下，加速比为2.8。
 
 Note: 暂时不支持profile
 
@@ -136,6 +144,11 @@ deepspeed是zero的老家，降低内存界的扛把子。 ref: [DeepSpeed](http
 具体可参考运行的脚本：[run_ds.sh](https://github.com/ConnollyLeon/DistributedTest/blob/master/ZeRO/DeepSpeedExamples/mnist/run_ds.sh)
 
 Note: 暂时不支持profile
+
+注意：这个实验里面暂时还没用到ZeRO，目前只是单纯的多节点数据并行，后面再进行修改。
+实验的时候没有考虑到batch_size需要重新调整(DeepSpeed把batch_size平均分了)，
+所以在实验结果里面看着会有内存大大减低了的错觉。
+
     
 
 # Experiment
