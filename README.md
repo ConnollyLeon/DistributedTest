@@ -4,14 +4,17 @@
 ## 1.Benchmark
 单节点单卡测试
 
+Note: 可profile
 ## 2.Data Parallel (DP)
 单节点多卡数据并行，具体使用torch中的nn.DataParallel(model)实现
 
+Note: 可profile
 ## 3.Distributed Data Parallel (DDP)
 多节点多卡数据并行，使用from torch.nn.parallel import DistributedDataParallel实现
 
 DDP和DP的区别在于，在使用DDP实例化模型之前，需要先设置好通信的机制，具体可以参考DDP.py中的 setup函数。
 
+Note: 可profile
 ### 3.1 Slurm如何使用DDP
  使用Slurm进行实验，先写好一个sbatch用的脚本，注意脚本文件里面用的是srun命令。
  eg:
@@ -39,6 +42,8 @@ DDP和DP的区别在于，在使用DDP实例化模型之前，需要先设置好
     rank = int(os.environ['SLURM_PROCID'])         # 全局的rank，用于init_process_group
     local_rank = int(os.environ['SLURM_LOCALID'])  # 一个节点上的rank，用于gpu的分配
     world_size = int(os.environ['SLURM_NTASKS'])   # 进程总数，用于init_process_group
+
+Note: 可profile
     
 ## 4. Model Parallel (MP)
 使用两块卡进行模型并行的测试，需要手动划分模型，即将子模型手动.to()到对应的GPU上。
@@ -63,6 +68,7 @@ eg:
     
     x = self.seq2(self.seq1(x).to('cuda:1'))
 -----------------------------
+Note: 可profile
 
 ## 5. Pipelined Model Parallel (PMP)
 在继承了MP模型的基础上，修改forward过程，将每次输入的batch分成更小的micro-batch，进行前向传播训练，
@@ -84,6 +90,8 @@ eg:
 
         s_prev = self.seq2(s_prev)
         ret.append(self.fc(s_prev.view(s_prev.size(0), -1)))
+        
+Note: 可profile 
 
 
 ## 6. RPC_PMP
@@ -95,15 +103,31 @@ zero的思想可以参考 ref: [DeepSpeed](https://www.deepspeed.ai/)
 目前torch1.8的ZeRO优化器做的稀烂，现在还是beta版本就先忍了。吞吐率奇低，大概率是因为每一次step的时候都需要进行很多次的通信。
 内存也没有做到zero redundancy,完全没有看到释放多余占用内存的代码，这应该是原因。    
 
+Note: 应该可profile，没试过
+
 ## 8. torchgpipe (not  Done yet)
 torchgpipe现在已经被加入了torch1.8豪华套餐，我还没有用1.8中的torchgpipe做过测试，
 但是在torchgpipe的原版代码中我进行过一点测试。基本上micro-batch数量越多，加速比越大。
 4卡，micro-batch为32的情况下，加速比为2.8。
 
-## 9. DeepSpeed DP
-zero的老家，降低内存界的扛把子。 ref: [DeepSpeed](https://www.deepspeed.ai/)
+Note: 暂时不支持profile
 
-支持多机多卡，在slurm机群中使用时需要先生成一个hostfile，命令如下：
+## 9. DeepSpeed DP
+deepspeed是zero的老家，降低内存界的扛把子。 ref: [DeepSpeed](https://www.deepspeed.ai/)
+
+支持多机多卡，使用时只需要deepspeed.initialize一下就可以了，然后用model_engine进行模型的forward, backward和step即可。
+
+    model_engine, optimizer, trainloader, __ = deepspeed.initialize(
+    args=args, model=model, model_parameters=parameters, training_data=train_data)
+    
+    ...
+    
+    outputs = model_engine(inputs)
+    loss = criterion(outputs, labels)
+    model_engine.backward(loss)
+    model_engine.step()
+
+在slurm机群中使用时需要先生成一个hostfile，命令如下：
 
     srun hostname -s > hostfile.txt
     
@@ -111,6 +135,7 @@ zero的老家，降低内存界的扛把子。 ref: [DeepSpeed](https://www.deep
 
 具体可参考运行的脚本：[run_ds.sh](https://github.com/ConnollyLeon/DistributedTest/blob/master/ZeRO/DeepSpeedExamples/mnist/run_ds.sh)
 
+Note: 暂时不支持profile
     
 
 # Experiment
