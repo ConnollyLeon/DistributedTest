@@ -131,135 +131,160 @@ class Net(nn.Module):
         x = self.fc3(x)
         return x
 
+def main():
 
-net = Net()
-parameters = filter(lambda p: p.requires_grad, net.parameters())
-args = add_argument()
+    net = Net()
+    parameters = filter(lambda p: p.requires_grad, net.parameters())
+    args = add_argument()
 
-# Initialize DeepSpeed to use the following features
-# 1) Distributed model
-# 2) Distributed data loader
-# 3) DeepSpeed optimizer
-model_engine, optimizer, trainloader, __ = deepspeed.initialize(
-    args=args, model=net, model_parameters=parameters, training_data=trainset)
+    # Initialize DeepSpeed to use the following features
+    # 1) Distributed model
+    # 2) Distributed data loader
+    # 3) DeepSpeed optimizer
+    model_engine, optimizer, trainloader, __ = deepspeed.initialize(
+        args=args, model=net, model_parameters=parameters, training_data=trainset)
 
-#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-#net.to(device)
-########################################################################
-# 3. Define a Loss function and optimizer
-# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-# Let's use a Classification Cross-Entropy loss and SGD with momentum.
+    #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    #net.to(device)
+    ########################################################################
+    # 3. Define a Loss function and optimizer
+    # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    # Let's use a Classification Cross-Entropy loss and SGD with momentum.
 
-import torch.optim as optim
+    import torch.optim as optim
 
-criterion = nn.CrossEntropyLoss()
-#optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+    criterion = nn.CrossEntropyLoss()
+    #optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
-########################################################################
-# 4. Train the network
-# ^^^^^^^^^^^^^^^^^^^^
-#
-# This is when things start to get interesting.
-# We simply have to loop over our data iterator, and feed the inputs to the
-# network and optimize.
+    ########################################################################
+    # 4. Train the network
+    # ^^^^^^^^^^^^^^^^^^^^
+    #
+    # This is when things start to get interesting.
+    # We simply have to loop over our data iterator, and feed the inputs to the
+    # network and optimize.
 
-for epoch in range(2):  # loop over the dataset multiple times
+    for epoch in range(2):  # loop over the dataset multiple times
 
-    running_loss = 0.0
-    for i, data in enumerate(trainloader):
-        # get the inputs; data is a list of [inputs, labels]
-        inputs, labels = data[0].to(model_engine.local_rank), data[1].to(
-            model_engine.local_rank)
+        running_loss = 0.0
+        for i, data in enumerate(trainloader):
+            # get the inputs; data is a list of [inputs, labels]
+            inputs, labels = data[0].to(model_engine.local_rank), data[1].to(
+                model_engine.local_rank)
 
-        outputs = model_engine(inputs)
-        loss = criterion(outputs, labels)
+            outputs = model_engine(inputs)
+            loss = criterion(outputs, labels)
 
-        model_engine.backward(loss)
-        model_engine.step()
+            model_engine.backward(loss)
+            model_engine.step()
 
-        # print statistics
-        running_loss += loss.item()
-        if i % 2000 == 1999:  # print every 2000 mini-batches
-            print('[%d, %5d] loss: %.3f' %
-                  (epoch + 1, i + 1, running_loss / 2000))
-            running_loss = 0.0
+            # print statistics
+            running_loss += loss.item()
+            if i % 2000 == 1999:  # print every 2000 mini-batches
+                print('[%d, %5d] loss: %.3f' %
+                      (epoch + 1, i + 1, running_loss / 2000))
+                running_loss = 0.0
 
-print('Finished Training')
+    print('Finished Training')
 
-########################################################################
-# 5. Test the network on the test data
-# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#
-# We have trained the network for 2 passes over the training dataset.
-# But we need to check if the network has learnt anything at all.
-#
-# We will check this by predicting the class label that the neural network
-# outputs, and checking it against the ground-truth. If the prediction is
-# correct, we add the sample to the list of correct predictions.
-#
-# Okay, first step. Let us display an image from the test set to get familiar.
+    ########################################################################
+    # 5. Test the network on the test data
+    # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    #
+    # We have trained the network for 2 passes over the training dataset.
+    # But we need to check if the network has learnt anything at all.
+    #
+    # We will check this by predicting the class label that the neural network
+    # outputs, and checking it against the ground-truth. If the prediction is
+    # correct, we add the sample to the list of correct predictions.
+    #
+    # Okay, first step. Let us display an image from the test set to get familiar.
 
-dataiter = iter(testloader)
-images, labels = dataiter.next()
+    dataiter = iter(testloader)
+    images, labels = dataiter.next()
 
-# print images
-imshow(torchvision.utils.make_grid(images))
-print('GroundTruth: ', ' '.join('%5s' % classes[labels[j]] for j in range(4)))
+    # print images
+    imshow(torchvision.utils.make_grid(images))
+    print('GroundTruth: ', ' '.join('%5s' % classes[labels[j]] for j in range(4)))
 
-########################################################################
-# Okay, now let us see what the neural network thinks these examples above are:
+    ########################################################################
+    # Okay, now let us see what the neural network thinks these examples above are:
 
-outputs = net(images.to(model_engine.local_rank))
+    outputs = net(images.to(model_engine.local_rank))
 
-########################################################################
-# The outputs are energies for the 10 classes.
-# The higher the energy for a class, the more the network
-# thinks that the image is of the particular class.
-# So, let's get the index of the highest energy:
-_, predicted = torch.max(outputs, 1)
+    ########################################################################
+    # The outputs are energies for the 10 classes.
+    # The higher the energy for a class, the more the network
+    # thinks that the image is of the particular class.
+    # So, let's get the index of the highest energy:
+    _, predicted = torch.max(outputs, 1)
 
-print('Predicted: ', ' '.join('%5s' % classes[predicted[j]] for j in range(4)))
+    print('Predicted: ', ' '.join('%5s' % classes[predicted[j]] for j in range(4)))
 
-########################################################################
-# The results seem pretty good.
-#
-# Let us look at how the network performs on the whole dataset.
+    ########################################################################
+    # The results seem pretty good.
+    #
+    # Let us look at how the network performs on the whole dataset.
 
-correct = 0
-total = 0
-with torch.no_grad():
-    for data in testloader:
-        images, labels = data
-        outputs = net(images.to(model_engine.local_rank))
-        _, predicted = torch.max(outputs.data, 1)
-        total += labels.size(0)
-        correct += (predicted == labels.to(
-            model_engine.local_rank)).sum().item()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for data in testloader:
+            images, labels = data
+            outputs = net(images.to(model_engine.local_rank))
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels.to(
+                model_engine.local_rank)).sum().item()
 
-print('Accuracy of the network on the 10000 test images: %d %%' %
-      (100 * correct / total))
+    print('Accuracy of the network on the 10000 test images: %d %%' %
+          (100 * correct / total))
 
-########################################################################
-# That looks way better than chance, which is 10% accuracy (randomly picking
-# a class out of 10 classes).
-# Seems like the network learnt something.
-#
-# Hmmm, what are the classes that performed well, and the classes that did
-# not perform well:
+    ########################################################################
+    # That looks way better than chance, which is 10% accuracy (randomly picking
+    # a class out of 10 classes).
+    # Seems like the network learnt something.
+    #
+    # Hmmm, what are the classes that performed well, and the classes that did
+    # not perform well:
 
-class_correct = list(0. for i in range(10))
-class_total = list(0. for i in range(10))
-with torch.no_grad():
-    for data in testloader:
-        images, labels = data
-        outputs = net(images.to(model_engine.local_rank))
-        _, predicted = torch.max(outputs, 1)
-        c = (predicted == labels.to(model_engine.local_rank)).squeeze()
-        for i in range(4):
-            label = labels[i]
-            class_correct[label] += c[i].item()
-            class_total[label] += 1
+    class_correct = list(0. for i in range(10))
+    class_total = list(0. for i in range(10))
+    with torch.no_grad():
+        for data in testloader:
+            images, labels = data
+            outputs = net(images.to(model_engine.local_rank))
+            _, predicted = torch.max(outputs, 1)
+            c = (predicted == labels.to(model_engine.local_rank)).squeeze()
+            for i in range(4):
+                label = labels[i]
+                class_correct[label] += c[i].item()
+                class_total[label] += 1
 
-for i in range(10):
-    print('Accuracy of %5s : %2d %%' %
-          (classes[i], 100 * class_correct[i] / class_total[i]))
+    for i in range(10):
+        print('Accuracy of %5s : %2d %%' %
+              (classes[i], 100 * class_correct[i] / class_total[i]))
+
+if __name__ == '__main__':
+    from pycallgraph import PyCallGraph
+    from pycallgraph.output import GraphvizOutput
+    from pycallgraph import Config
+    from pycallgraph import GlobbingFilter
+
+    config = Config()
+    config.max_depth = 10
+    # config.include_pycallgraph=True
+    config.include_stdlib = True
+    config.trace_filter = GlobbingFilter(include=[
+        'main',
+        '*',
+        'numpy.*',
+        'pandas.*',
+        'np.*',
+        'pd.*',
+        'pandas.DataFrame.*',
+        'pd.DataFrame.*',
+    ],
+    exclude=['pycallgraph.*'])
+    with PyCallGraph(output=GraphvizOutput(), config=config):
+        main()

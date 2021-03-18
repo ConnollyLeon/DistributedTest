@@ -11,3 +11,14 @@ ZeRO/DeepSpeedExamples/mnist/DDP_training_profiler_cuda_4_gpus_64_nodes_1.0.json
 ZeRO/DeepSpeedExamples/mnist/DDP_training_profiler_cuda_2_gpus_64_nodes_1.0.json
 ZeRO/DeepSpeedExamples/cifar.zip
 testPytorch/rpc_pipeline_training_profiler.json
+ZeRO/DeepSpeedExamples/mnist/source.dot
+ZeRO/DeepSpeedExamples/mnist/stage1.dot
+ZeRO/DeepSpeedExamples/mnist/stage1.png
+ZeRO/DeepSpeedExamples/mnist/stage2.dot
+ZeRO/DeepSpeedExamples/mnist/stage2.png
+ZeRO/DeepSpeedExamples/mnist/stage3.dot
+ZeRO/DeepSpeedExamples/mnist/stage3.png
+
+ZeRO/DeepSpeedExamples/mnist/dscallgraph.png
+testPytorch/src/pycallgraph.png
+testPytorch/src/temp_graph
