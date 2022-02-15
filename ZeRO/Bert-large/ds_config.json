@@ -1,0 +1,43 @@
+{
+  "train_batch_size": 4,
+  "steps_per_print": 1,
+  "optimizer": {
+    "type": "AdamW",
+    "params": {
+      "torch_adam": true,
+      "lr": 0.001,
+      "betas": [
+        0.8,
+        0.999
+      ],
+      "eps": 1e-8,
+      "weight_decay": 3e-7
+    }
+  },
+  "scheduler": {
+    "type": "WarmupLR",
+    "params": {
+      "warmup_min_lr": 0,
+      "warmup_max_lr": 0.001,
+      "warmup_num_steps": 1000
+    }
+  },
+  "zero_optimization": {
+    "stage": 3,
+    "allgather_partitions": true,
+    "allgather_bucket_size": 5e6,
+    "overlap_comm": false,
+    "reduce_scatter": true,
+    "reduce_bucket_size": 5e6,
+    "contiguous_gradients" : true,
+    "stage3_max_live_parameters" : 0,
+    "stage3_max_reuse_distance" : 0,
+    "stage3_prefetch_bucket_size" : 0,
+    "stage3_param_persistence_threshold" : 0,
+    "sub_group_size" : 1e12,
+    "elastic_checkpoint" : false,
+    "stage3_gather_fp16_weights_on_model_save": false,
+    "ignore_unused_parameters": true
+    },
+  "wall_clock_breakdown": true
+}
