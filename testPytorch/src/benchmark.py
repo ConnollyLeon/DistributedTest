@@ -16,7 +16,7 @@ from torchvision import datasets, transforms
 
 # Training settings 就是在设置一些参数，每个都有默认值，输入python main.py -h可以获得相关帮助
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+parser.add_argument('--batch-size', type=int, default=1, metavar='N',
                     # batch_size参数，如果想改，如改成128可这么写：python main.py -batch_size=128
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=10, metavar='N',  # test_batch_size参数，
@@ -49,7 +49,7 @@ else:
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_gpu else {}
 train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('./data', train=True, download=True,
+    datasets.MNIST('../data', train=True, download=True,
                    transform=transforms.Compose([transforms.Resize(224), torchvision.transforms.ToTensor()])),
     # transform=transforms.Compose([
     #     transforms.Resize(224),  # resnet默认图片输入大小224*224
@@ -59,7 +59,7 @@ train_loader = torch.utils.data.DataLoader(
     batch_size=args.batch_size, shuffle=True, **kwargs)
 test_loader = torch.utils.data.DataLoader(
     torchvision.datasets.MNIST(
-        root='./data',
+        root='../data',
         train=False,
         download=True,
         transform=transforms.Compose([transforms.Resize(224), torchvision.transforms.ToTensor()])),
@@ -124,6 +124,7 @@ def train(epoch):  # 定义每个epoch的训练细节
         running_accuracy += torch.sum(torch.eq(target, train_output)).item() / target.cpu().numpy().size
         running_loss += loss.item()
         optimizer.step()  # 结束一次前传+反传之后，更新优化器参数
+        break
         if batch_idx % args.log_interval == 0:  # 准备打印相关信息，args.log_interval是最开头设置的好了的参数
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\t Accuracy: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -160,14 +161,14 @@ def test(epoch):
         # correct += test_output.eq(target.data.view_as(test_output)).cpu().sum()  # 对预测正确的数据个数进行累加
         # running_accuracy += torch.sum(torch.eq(target, test_output)).item() / target.cpu().numpy().size
 
-    test_loss /= count  # 因为把所有loss值进行过累加，所以最后要除以总得数据长度才得平均loss
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}% )\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset), ))
-
-    if not args.no_tensorboard:
-        writer.add_scalar('testing loss', test_loss, epoch)
-        writer.add_scalar('testing accuracy', 100. * correct / len(test_loader.dataset), epoch)
+    # test_loss /= count  # 因为把所有loss值进行过累加，所以最后要除以总得数据长度才得平均loss
+    # print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}% )\n'.format(
+    #     test_loss, correct, len(test_loader.dataset),
+    #     100. * correct / len(test_loader.dataset), ))
+    #
+    # if not args.no_tensorboard:
+    #     writer.add_scalar('testing loss', test_loss, epoch)
+    #     writer.add_scalar('testing accuracy', 100. * correct / len(test_loader.dataset), epoch)
 
 
 def profile(dir_name='./runs/benchmark/', batch_size=args.batch_size):
@@ -212,17 +213,39 @@ def profile(dir_name='./runs/benchmark/', batch_size=args.batch_size):
 
 
 if __name__ == '__main__':
-    for epoch in range(1, args.epochs + 1):  # 以epoch为单位进行循环
-        start = time.time()
-        train(epoch)
-        end = time.time()
-        print("Training using time: {}s, throughput: {} items/s".format(end - start,
-                                                                        len(train_loader.dataset) / (end - start)))
-        start = time.time()
-        test(epoch)
-        end = time.time()
-        print("Inference using time: {}s, throughput: {} items/s".format(end - start,
-                                                                         len(test_loader.dataset) / (end - start)))
+    from pycallgraph import PyCallGraph
+    from pycallgraph.output import GraphvizOutput
+    from pycallgraph import Config
+    from pycallgraph import GlobbingFilter
 
-    # Profiler
-    profile()
+    config = Config()
+    config.max_depth = 10
+    # config.include_pycallgraph=True
+    config.include_stdlib = True
+    config.trace_filter = GlobbingFilter(include=[
+        'main',
+        '*',
+        'numpy.*',
+        'pandas.*',
+        'np.*',
+        'pd.*',
+        'pandas.DataFrame.*',
+        'pd.DataFrame.*',
+    ],
+    exclude=['pycallgraph.*'])
+    with PyCallGraph(output=GraphvizOutput(), config=config):
+
+        for epoch in range(1, args.epochs + 1):  # 以epoch为单位进行循环
+            start = time.time()
+            train(epoch)
+            end = time.time()
+            print("Training using time: {}s, throughput: {} items/s".format(end - start,
+                                                                            len(train_loader.dataset) / (end - start)))
+            # start = time.time()
+            # test(epoch)
+            # end = time.time()
+            # print("Inference using time: {}s, throughput: {} items/s".format(end - start,
+            #                                                                  len(test_loader.dataset) / (end - start)))
+
+        # Profiler
+        # profile()

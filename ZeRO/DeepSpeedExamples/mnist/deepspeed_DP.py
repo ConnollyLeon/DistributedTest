@@ -11,6 +11,11 @@ from torchvision import datasets
 import time
 
 
+def print_peak_memory(prefix, device):
+    if device == 0:
+        print(f"{prefix}: {torch.cuda.max_memory_allocated(device) // 1e6}MB ")
+
+
 def add_argument():
     parser = argparse.ArgumentParser(description='CIFAR')
 
@@ -62,103 +67,80 @@ class ResNet50(nn.Module):
         return x
 
 
-model = ResNet50()
-criterion = nn.CrossEntropyLoss()
-parameters = filter(lambda p: p.requires_grad, model.parameters())
-args = add_argument()
+def main():
+    model = ResNet50()
+    criterion = nn.CrossEntropyLoss()
+    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    args = add_argument()
 
-train_data = datasets.MNIST(root='/home/laizhiquan/dat01/lpeng/SystemTestCode/testPytorch/data', train=True,
-                            download=True,
-                            transform=transforms.Compose([transforms.Resize(224), torchvision.transforms.ToTensor()]))
-print(train_data)
-test_data = datasets.MNIST(
-    root='/home/laizhiquan/dat01/lpeng/SystemTestCode/testPytorch/data',
-    train=False,
-    download=True,
-    transform=transforms.Compose([transforms.Resize(224), torchvision.transforms.ToTensor()])),
+    train_data = datasets.MNIST(root='/home/laizhiquan/dat01/lpeng/SystemTestCode/testPytorch/data', train=True,
+                                download=True,
+                                transform=transforms.Compose(
+                                    [transforms.Resize(224), torchvision.transforms.ToTensor()]))
+    print(train_data)
+    test_data = datasets.MNIST(
+        root='/home/laizhiquan/dat01/lpeng/SystemTestCode/testPytorch/data',
+        train=False,
+        download=True,
+        transform=transforms.Compose([transforms.Resize(224), torchvision.transforms.ToTensor()])),
 
-model_engine, optimizer, trainloader, __ = deepspeed.initialize(
-    args=args, model=model, model_parameters=parameters, training_data=train_data)
+    model_engine, optimizer, trainloader, __ = deepspeed.initialize(
+        args=args, model=model, model_parameters=parameters, training_data=train_data)
 
+    print_peak_memory('Max memory allocated after creating deepspeed model', 0)
 
-start_time = time.time()
-for epoch in range(1):  # loop over the dataset multiple times
+    start_time = time.time()
+    for epoch in range(1):  # loop over the dataset multiple times
 
-    running_loss = 0.0
-    for i, data in enumerate(trainloader):
-        # get the inputs; data is a list of [inputs, labels]
-        inputs, labels = data[0].to(model_engine.local_rank), data[1].to(
-            model_engine.local_rank)
+        running_loss = 0.0
+        for i, data in enumerate(trainloader):
+            # get the inputs; data is a list of [inputs, labels]
+            inputs, labels = data[0].to(model_engine.local_rank), data[1].to(
+                model_engine.local_rank)
 
-        outputs = model_engine(inputs)
-        loss = criterion(outputs, labels)
+            outputs = model_engine(inputs)
+            loss = criterion(outputs, labels)
+            print_peak_memory('Max memory allocated after forward', 0)
+            model_engine.backward(loss)
+            print_peak_memory('Max memory allocated after backward', 0)
+            model_engine.step()
+            print_peak_memory('Max memory allocated after step', 0)
 
-        model_engine.backward(loss)
-        model_engine.step()
+            # print statistics
+            running_loss += loss.item()
+            if i % 10 == 9:  # print every 2000 mini-batches
+                print('[%d, %5d] loss: %.3f' %
+                      (epoch + 1, i + 1, running_loss / 2000))
+                running_loss = 0.0
 
-        # print statistics
-        running_loss += loss.item()
-        if i % 10 == 9:  # print every 2000 mini-batches
-            print('[%d, %5d] loss: %.3f' %
-                  (epoch + 1, i + 1, running_loss / 2000))
-            running_loss = 0.0
+    end_time = time.time()
+    if model_engine.global_rank == 0:
+        print(f'Throughput:{60000 / (end_time - start_time)} samples per sec.\n')
+        f = open('hostfile.txt', 'r')
+        lines = f.readlines()
+        f.close()
+        nodes = len(lines)
+        gpupernodes = lines[0].strip().split()[-1]
+        f = open(f'output_node{nodes}_gres{gpupernodes}.txt', 'w')
+        f.writelines(lines)
+        f.write(f'Throughput:{60000 / (end_time - start_time)} samples per sec.\n')
 
-end_time = time.time()
-if model_engine.global_rank == 0:
-    print(f'Throughput:{60000 / (end_time - start_time)} samples per sec.\n')
-    f = open('hostfile.txt', 'r')
-    lines = f.readlines()
-    f.close()
-    nodes = len(lines)
-    gpupernodes = lines[0].strip().split()[-1]
-    f = open(f'output_node{nodes}_gres{gpupernodes}.txt', 'w')
-    f.writelines(lines)
-    f.write(f'Throughput:{60000/(end_time-start_time)} samples per sec.\n')
-
-
-print('Finished Training')
-
-########################################################################
-# 5. Test the network on the test data
-# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#
-# We have trained the network for 2 passes over the training dataset.
-# But we need to check if the network has learnt anything at all.
-#
-# We will check this by predicting the class label that the neural network
-# outputs, and checking it against the ground-truth. If the prediction is
-# correct, we add the sample to the list of correct predictions.
-#
-# Okay, first step. Let us display an image from the test set to get familiar.
-
-test_loader = torch.utils.data.DataLoader(test_data,
-                                          batch_size=64,
-                                          shuffle=False,
-                                          num_workers=2)
+    print('Finished Training')
 
 
-def test(epoch):
-    model.eval()  # 设置为test模式
-    test_loss = 0  # 初始化测试损失值为0
-    correct = 0  # 初始化预测正确的数据个数为0
-    running_accuracy = 0.0
-    total = 0
-    count = 0
-    for data, target in test_loader:
-        if args.with_cuda:
-            data, target = data.cuda(), target.cuda()
-        data, target = Variable(data), Variable(target)
-        output = model(data)
-        test_loss += criterion(output, target).item()  # sum up batch loss 把所有loss值进行累加
-        test_output = torch.max(output, dim=1)[1]  # get the index of the max log-probability
-        # pred = output.data.max(1, keepdim=True)[1]
-        correct += torch.sum(torch.eq(test_output, target)).item()
-        total += target.size(0)
-        count += 1
-        # correct += test_output.eq(target.data.view_as(test_output)).cpu().sum()  # 对预测正确的数据个数进行累加
-        # running_accuracy += torch.sum(torch.eq(target, test_output)).item() / target.cpu().numpy().size
-
-    test_loss /= count  # 因为把所有loss值进行过累加，所以最后要除以总得数据长度才得平均loss
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}% )\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset), ))
+if __name__ == '__main__':
+    # from pycallgraph import PyCallGraph
+    # from pycallgraph.output import GraphvizOutput
+    # from pycallgraph import Config
+    # from pycallgraph import GlobbingFilter
+    #
+    # config = Config()
+    # config.max_depth = 10
+    # # config.include_pycallgraph=True
+    # config.include_stdlib = True
+    # config.trace_filter = GlobbingFilter(include=[
+    #     '*',
+    # ],
+    #     exclude=['pycallgraph.*'])
+    # with PyCallGraph(output=GraphvizOutput(), config=config):
+        main()
